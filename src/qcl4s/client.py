@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import ssl
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -15,32 +16,48 @@ from .metrics import MetricsRecorder, TransferClock, snapshot_transport
 from .protocol import mbps, receive_all
 
 
+@dataclass
+class TransferResult:
+    received_bytes: int
+    elapsed_s: float
+    throughput_mbps: float
+    ping_ms: float
+    congestion_control: str
+
+
 async def measure_ping(protocol) -> float:
     started_at = time.perf_counter()
     await protocol.ping()
     return (time.perf_counter() - started_at) * 1000
 
 
-async def run_client(args: argparse.Namespace) -> None:
+async def transfer(
+    *,
+    host: str,
+    port: int,
+    byte_count: int,
+    cc: str,
+    metrics_path: Optional[Path],
+    insecure: bool,
+) -> TransferResult:
     configuration = QuicConfiguration(
         is_client=True,
         alpn_protocols=ALPN_PROTOCOLS,
-        congestion_control_algorithm=args.cc,
+        congestion_control_algorithm=cc,
     )
-    if args.insecure:
+    if insecure:
         configuration.verify_mode = ssl.CERT_NONE
 
     async with connect(
-        args.host,
-        args.port,
+        host,
+        port,
         configuration=configuration,
     ) as protocol:
         ping_ms = await measure_ping(protocol)
         reader, writer = await protocol.create_stream()
         stream_id = writer.get_extra_info("stream_id")
-        metrics_path: Optional[Path] = Path(args.metrics_file) if args.metrics_file else None
         clock = TransferClock()
-        writer.write(f"GET {args.bytes}\n".encode("ascii"))
+        writer.write(f"GET {byte_count}\n".encode("ascii"))
         await writer.drain()
 
         if metrics_path is None:
@@ -65,13 +82,34 @@ async def run_client(args: argparse.Namespace) -> None:
 
         writer.close()
 
+    return TransferResult(
+        received_bytes=received,
+        elapsed_s=elapsed,
+        throughput_mbps=mbps(received, elapsed),
+        ping_ms=ping_ms,
+        congestion_control=cc,
+    )
+
+
+async def run_client(args: argparse.Namespace) -> None:
+    result = await transfer(
+        host=args.host,
+        port=args.port,
+        byte_count=args.bytes,
+        cc=args.cc,
+        metrics_path=Path(args.metrics_file)
+        if args.metrics_file
+        else None,
+        insecure=args.insecure,
+    )
+
     print(
         "received={received} bytes elapsed={elapsed:.3f}s throughput={throughput:.2f}Mbps ping={ping:.2f}ms cc={cc}".format(
-            received=received,
-            elapsed=elapsed,
-            throughput=mbps(received, elapsed),
-            ping=ping_ms,
-            cc=args.cc,
+            received=result.received_bytes,
+            elapsed=result.elapsed_s,
+            throughput=result.throughput_mbps,
+            ping=result.ping_ms,
+            cc=result.congestion_control,
         )
     )
 

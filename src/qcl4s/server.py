@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 
-from aioquic.asyncio import serve
+from aioquic.asyncio.server import QuicServer, serve
 from aioquic.quic.configuration import QuicConfiguration
 
 from .certs import ensure_self_signed_cert
@@ -60,26 +60,47 @@ async def handle_stream(
         writer.close()
 
 
-async def run_server(args: argparse.Namespace) -> None:
-    cert_path = Path(args.cert)
-    key_path = Path(args.key)
-    if args.generate_cert:
-        ensure_self_signed_cert(cert_path, key_path, args.host)
+async def create_server(
+    *,
+    host: str,
+    port: int,
+    cert_path: Path,
+    key_path: Path,
+    cc: str,
+    metrics_path: Optional[Path],
+    generate_cert: bool,
+) -> QuicServer:
+    if generate_cert:
+        ensure_self_signed_cert(cert_path, key_path, host)
 
     configuration = QuicConfiguration(
         is_client=False,
         alpn_protocols=ALPN_PROTOCOLS,
-        congestion_control_algorithm=args.cc,
+        congestion_control_algorithm=cc,
     )
     configuration.load_cert_chain(cert_path, key_path)
 
-    server = await serve(
-        args.host,
-        args.port,
+    return await serve(
+        host,
+        port,
         configuration=configuration,
         stream_handler=lambda reader, writer: asyncio.create_task(
-            handle_stream(reader, writer, Path(args.metrics_file) if args.metrics_file else None)
+            handle_stream(reader, writer, metrics_path)
         ),
+    )
+
+
+async def run_server(args: argparse.Namespace) -> None:
+    cert_path = Path(args.cert)
+    key_path = Path(args.key)
+    server = await create_server(
+        host=args.host,
+        port=args.port,
+        cert_path=cert_path,
+        key_path=key_path,
+        cc=args.cc,
+        metrics_path=Path(args.metrics_file) if args.metrics_file else None,
+        generate_cert=args.generate_cert,
     )
     print(f"qcl4s server listening on {args.host}:{args.port} cc={args.cc}")
     print(f"certificate={cert_path} key={key_path}")

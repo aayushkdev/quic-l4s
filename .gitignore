@@ -11,3 +11,4 @@ wheels/
 
 # Local QCL4S runtime files
 .qcl4s/
+runs/
