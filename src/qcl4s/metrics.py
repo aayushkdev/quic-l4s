@@ -19,6 +19,13 @@ class TransportSnapshot:
     latest_rtt_ms: Optional[float]
     smoothed_rtt_ms: Optional[float]
     min_rtt_ms: Optional[float]
+    ecn_profile: str
+    ecn_sent_datagrams: Optional[int]
+    ecn_received_datagrams: Optional[int]
+    ecn_received_not_ect: Optional[int]
+    ecn_received_ect0: Optional[int]
+    ecn_received_ect1: Optional[int]
+    ecn_received_ce: Optional[int]
 
 
 class MetricsRecorder:
@@ -71,6 +78,7 @@ def snapshot_transport(
     min_rtt = getattr(recovery, "_rtt_min", None)
     if min_rtt == float("inf"):
         min_rtt = None
+    ecn = _ecn_snapshot(protocol)
 
     return TransportSnapshot(
         elapsed_ms=clock.elapsed_ms(),
@@ -83,6 +91,13 @@ def snapshot_transport(
         latest_rtt_ms=_seconds_to_ms(latest_rtt),
         smoothed_rtt_ms=_seconds_to_ms(smoothed_rtt),
         min_rtt_ms=_seconds_to_ms(min_rtt),
+        ecn_profile=getattr(ecn, "profile", "unknown"),
+        ecn_sent_datagrams=getattr(ecn, "sent_datagrams", None),
+        ecn_received_datagrams=getattr(ecn, "received_datagrams", None),
+        ecn_received_not_ect=getattr(ecn, "received_not_ect", None),
+        ecn_received_ect0=getattr(ecn, "received_ect0", None),
+        ecn_received_ect1=getattr(ecn, "received_ect1", None),
+        ecn_received_ce=getattr(ecn, "received_ce", None),
     )
 
 
@@ -95,3 +110,13 @@ def _seconds_to_ms(value: Optional[float]) -> Optional[float]:
     if value is None:
         return None
     return value * 1000
+
+
+def _ecn_snapshot(protocol: Any) -> Any:
+    transport = getattr(protocol, "_transport", None)
+    if transport is None:
+        return None
+    get_extra_info = getattr(transport, "get_extra_info", None)
+    if get_extra_info is None:
+        return None
+    return get_extra_info("ecn_snapshot")

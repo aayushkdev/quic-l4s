@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import AsyncGenerator, Callable, Optional, cast
 
 from aioquic.asyncio.protocol import QuicConnectionProtocol, QuicStreamHandler
@@ -11,7 +12,23 @@ from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.connection import QuicConnection, QuicTokenHandler
 from aioquic.tls import SessionTicketHandler
 
-from .ecn import ECNCodepoint, enable_ecn_receiving, set_outgoing_ecn
+from .ecn import (
+    ECNCodepoint,
+    enable_ecn_receiving,
+    recvmsg_with_ecn,
+    set_outgoing_ecn,
+)
+
+
+@dataclass
+class ECNTransportSnapshot:
+    profile: str
+    sent_datagrams: int
+    received_datagrams: int
+    received_not_ect: int
+    received_ect0: int
+    received_ect1: int
+    received_ce: int
 
 
 @asynccontextmanager
@@ -53,11 +70,8 @@ async def connect_quic(
         if not completed:
             sock.close()
 
-    transport, protocol = await loop.create_datagram_endpoint(
-        lambda: create_protocol(connection, stream_handler=stream_handler),
-        sock=sock,
-    )
-    protocol = cast(QuicConnectionProtocol, protocol)
+    protocol = create_protocol(connection, stream_handler=stream_handler)
+    transport = ECNDatagramTransport(loop=loop, sock=sock, protocol=protocol, ecn=ecn)
     try:
         protocol.connect(addr, transmit=wait_connected)
         if wait_connected:
@@ -81,17 +95,110 @@ async def serve_quic(
 ) -> QuicServer:
     loop = asyncio.get_running_loop()
     sock = await create_bound_udp_socket(host=host, port=port, ecn=ecn)
-
-    _, protocol = await loop.create_datagram_endpoint(
-        lambda: QuicServer(
-            configuration=configuration,
-            create_protocol=create_protocol,
-            retry=retry,
-            stream_handler=stream_handler,
-        ),
-        sock=sock,
+    protocol = QuicServer(
+        configuration=configuration,
+        create_protocol=create_protocol,
+        retry=retry,
+        stream_handler=stream_handler,
     )
-    return cast(QuicServer, protocol)
+    ECNDatagramTransport(loop=loop, sock=sock, protocol=protocol, ecn=ecn)
+    return protocol
+
+
+class ECNDatagramTransport(asyncio.DatagramTransport):
+    def __init__(
+        self,
+        *,
+        loop: asyncio.AbstractEventLoop,
+        sock: socket.socket,
+        protocol: asyncio.DatagramProtocol,
+        ecn: Optional[ECNCodepoint],
+    ) -> None:
+        self._loop = loop
+        self._sock = sock
+        self._protocol = protocol
+        self._ecn = ecn
+        self._closing = False
+        self._received_counts = {
+            ECNCodepoint.NOT_ECT: 0,
+            ECNCodepoint.ECT0: 0,
+            ECNCodepoint.ECT1: 0,
+            ECNCodepoint.CE: 0,
+        }
+        self._received_datagrams = 0
+        self._sent_datagrams = 0
+
+        self._sock.setblocking(False)
+        self._protocol.connection_made(self)
+        self._loop.add_reader(self._sock.fileno(), self._read_ready)
+
+    def close(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        self._loop.remove_reader(self._sock.fileno())
+        self._sock.close()
+        self._protocol.connection_lost(None)
+
+    def get_extra_info(self, name: str, default=None):
+        if name == "socket":
+            return self._sock
+        if name == "sockname":
+            try:
+                return self._sock.getsockname()
+            except OSError:
+                return default
+        if name == "ecn_snapshot":
+            return self.ecn_snapshot()
+        return default
+
+    def is_closing(self) -> bool:
+        return self._closing
+
+    def sendto(self, data, addr=None) -> None:
+        if self._closing:
+            return
+        try:
+            if addr is None:
+                self._sock.send(data)
+            else:
+                self._sock.sendto(data, addr)
+            self._sent_datagrams += 1
+        except OSError as exc:
+            self._protocol.error_received(exc)
+
+    def ecn_snapshot(self) -> ECNTransportSnapshot:
+        return ECNTransportSnapshot(
+            profile=self._ecn.label if self._ecn is not None else "default",
+            sent_datagrams=self._sent_datagrams,
+            received_datagrams=self._received_datagrams,
+            received_not_ect=self._received_counts[ECNCodepoint.NOT_ECT],
+            received_ect0=self._received_counts[ECNCodepoint.ECT0],
+            received_ect1=self._received_counts[ECNCodepoint.ECT1],
+            received_ce=self._received_counts[ECNCodepoint.CE],
+        )
+
+    def _read_ready(self) -> None:
+        while not self._closing:
+            try:
+                if self._ecn is None:
+                    data, addr = self._sock.recvfrom(65_535)
+                    observed_ecn = None
+                else:
+                    datagram = recvmsg_with_ecn(self._sock)
+                    data = datagram.data
+                    addr = datagram.address
+                    observed_ecn = datagram.ecn
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError as exc:
+                self._protocol.error_received(exc)
+                break
+
+            self._received_datagrams += 1
+            if observed_ecn is not None:
+                self._received_counts[observed_ecn] += 1
+            self._protocol.datagram_received(data, addr)
 
 
 async def create_bound_udp_socket(
