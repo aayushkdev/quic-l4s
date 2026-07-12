@@ -1,4 +1,5 @@
 from .codepoint import ECNCodepoint, apply_ecn, parse_ecn
+from .state import ECNFeedbackSample, ECNFeedbackState
 from .socket import (
     ECNSocketError,
     ReceivedDatagram,
@@ -10,6 +11,8 @@ from .validation import ECNValidationResult, validate_udp_loopback
 
 __all__ = [
     "ECNCodepoint",
+    "ECNFeedbackSample",
+    "ECNFeedbackState",
     "ECNSocketError",
     "ECNValidationResult",
     "ReceivedDatagram",

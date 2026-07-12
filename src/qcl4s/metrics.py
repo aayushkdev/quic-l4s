@@ -26,6 +26,10 @@ class TransportSnapshot:
     ecn_received_ect0: Optional[int]
     ecn_received_ect1: Optional[int]
     ecn_received_ce: Optional[int]
+    prague_alpha: Optional[float]
+    prague_ce_fraction: Optional[float]
+    prague_total_ect1: Optional[int]
+    prague_total_ce: Optional[int]
 
 
 class MetricsRecorder:
@@ -79,6 +83,7 @@ def snapshot_transport(
     if min_rtt == float("inf"):
         min_rtt = None
     ecn = _ecn_snapshot(protocol)
+    cc = getattr(recovery, "_cc", None)
 
     return TransportSnapshot(
         elapsed_ms=clock.elapsed_ms(),
@@ -98,6 +103,10 @@ def snapshot_transport(
         ecn_received_ect0=getattr(ecn, "received_ect0", None),
         ecn_received_ect1=getattr(ecn, "received_ect1", None),
         ecn_received_ce=getattr(ecn, "received_ce", None),
+        prague_alpha=getattr(cc, "prague_alpha", None),
+        prague_ce_fraction=getattr(cc, "prague_ce_fraction", None),
+        prague_total_ect1=getattr(getattr(cc, "ecn_state", None), "total_ect1", None),
+        prague_total_ce=getattr(getattr(cc, "ecn_state", None), "total_ce", None),
     )
 
 
