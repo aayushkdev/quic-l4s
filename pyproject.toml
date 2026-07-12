@@ -1,0 +1,21 @@
+[project]
+name = "qcl4s"
+version = "0.1.0"
+description = "Python QUIC + L4S research prototype"
+readme = "README.md"
+authors = [
+    { name = "Aayush Kumar", email = "code@aayushk.dev" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "aioquic>=1.3.0",
+]
+
+[project.scripts]
+qcl4s = "qcl4s:main"
+qcl4s-client = "qcl4s.client:main"
+qcl4s-server = "qcl4s.server:main"
+
+[build-system]
+requires = ["uv_build>=0.11.27,<0.12.0"]
+build-backend = "uv_build"

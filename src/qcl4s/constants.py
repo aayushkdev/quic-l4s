@@ -1,0 +1,7 @@
+ALPN_PROTOCOLS = ["qcl4s/0.1"]
+DEFAULT_CERT_PATH = ".qcl4s/certs/localhost.crt"
+DEFAULT_KEY_PATH = ".qcl4s/certs/localhost.key"
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 4433
+DEFAULT_TRANSFER_BYTES = 1_048_576
+STREAM_CHUNK_SIZE = 16_384
