@@ -12,6 +12,7 @@ from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.connection import QuicConnection, QuicTokenHandler
 from aioquic.tls import SessionTicketHandler
 
+from .aioquic_ecn import install_ack_ecn_patch, reset_current_ecn, set_current_ecn
 from .ecn import (
     ECNCodepoint,
     enable_ecn_receiving,
@@ -45,6 +46,7 @@ async def connect_quic(
     wait_connected: bool = True,
     local_port: int = 0,
 ) -> AsyncGenerator[QuicConnectionProtocol, None]:
+    install_ack_ecn_patch()
     loop = asyncio.get_running_loop()
 
     infos = await loop.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
@@ -93,6 +95,7 @@ async def serve_quic(
     retry: bool = False,
     stream_handler: QuicStreamHandler = None,
 ) -> QuicServer:
+    install_ack_ecn_patch()
     loop = asyncio.get_running_loop()
     sock = await create_bound_udp_socket(host=host, port=port, ecn=ecn)
     protocol = QuicServer(
@@ -198,7 +201,11 @@ class ECNDatagramTransport(asyncio.DatagramTransport):
             self._received_datagrams += 1
             if observed_ecn is not None:
                 self._received_counts[observed_ecn] += 1
-            self._protocol.datagram_received(data, addr)
+            token = set_current_ecn(observed_ecn)
+            try:
+                self._protocol.datagram_received(data, addr)
+            finally:
+                reset_current_ecn(token)
 
 
 async def create_bound_udp_socket(
