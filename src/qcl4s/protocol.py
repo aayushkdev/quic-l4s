@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 
 from .constants import STREAM_CHUNK_SIZE
 
@@ -37,21 +38,32 @@ async def read_command(reader: asyncio.StreamReader) -> tuple[str, int]:
     return parts[0], byte_count
 
 
-async def send_bytes(writer: asyncio.StreamWriter, byte_count: int) -> None:
+async def send_bytes(
+    writer: asyncio.StreamWriter,
+    byte_count: int,
+    on_progress: Callable[[int], None] | None = None,
+) -> None:
     remaining = byte_count
     chunk = payload_chunk(STREAM_CHUNK_SIZE)
+    sent = 0
 
     while remaining > 0:
         write_size = min(remaining, STREAM_CHUNK_SIZE)
         writer.write(chunk[:write_size])
         await writer.drain()
         remaining -= write_size
+        sent += write_size
+        if on_progress is not None:
+            on_progress(sent)
 
     writer.write_eof()
     await writer.drain()
 
 
-async def receive_all(reader: asyncio.StreamReader) -> tuple[int, float]:
+async def receive_all(
+    reader: asyncio.StreamReader,
+    on_progress: Callable[[int], None] | None = None,
+) -> tuple[int, float]:
     received = 0
     started_at = time.perf_counter()
 
@@ -60,6 +72,8 @@ async def receive_all(reader: asyncio.StreamReader) -> tuple[int, float]:
         if not chunk:
             break
         received += len(chunk)
+        if on_progress is not None:
+            on_progress(received)
 
     return received, time.perf_counter() - started_at
 
