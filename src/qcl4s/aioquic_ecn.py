@@ -29,16 +29,9 @@ def install_ack_ecn_patch() -> None:
     if _installed:
         return
 
-    original_receive_datagram = aioquic_connection.QuicConnection.receive_datagram
     original_handle_ack_frame = aioquic_connection.QuicConnection._handle_ack_frame
+    original_payload_received = aioquic_connection.QuicConnection._payload_received
     original_write_ack_frame = aioquic_connection.QuicConnection._write_ack_frame
-
-    def receive_datagram(self, data, addr, now):
-        codepoint = _current_ecn.get()
-        if codepoint is not None:
-            counts = _ecn_counts(self)
-            counts[codepoint] += 1
-        return original_receive_datagram(self, data, addr, now)
 
     def handle_ack_frame(self, context, frame_type, buf):
         ecn_counts = None
@@ -61,6 +54,19 @@ def install_ack_ecn_patch() -> None:
                     ect1=ecn_counts[ECNCodepoint.ECT1],
                     ce=ecn_counts[ECNCodepoint.CE],
                 )
+        return result
+
+    def payload_received(self, context, plain, crypto_frame_required=False):
+        result = original_payload_received(
+            self,
+            context,
+            plain,
+            crypto_frame_required=crypto_frame_required,
+        )
+        codepoint = _current_ecn.get()
+        if codepoint is not None:
+            counts = _ecn_counts(self)
+            counts[codepoint] += 1
         return result
 
     def write_ack_frame(self, builder, space, now):
@@ -94,8 +100,8 @@ def install_ack_ecn_patch() -> None:
         if ranges > 1 and builder.packet_number % 8 == 0:
             self._write_ping_frame(builder, comment="ACK-of-ACK trigger")
 
-    aioquic_connection.QuicConnection.receive_datagram = receive_datagram
     aioquic_connection.QuicConnection._handle_ack_frame = handle_ack_frame
+    aioquic_connection.QuicConnection._payload_received = payload_received
     aioquic_connection.QuicConnection._write_ack_frame = write_ack_frame
     _installed = True
 
