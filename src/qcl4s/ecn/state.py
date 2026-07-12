@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class ECNFeedbackSample:
     ect1_delta: int
     ce_delta: int
+    marked_delta: int
     ce_fraction: float
 
 
@@ -33,5 +34,6 @@ class ECNFeedbackState:
         return ECNFeedbackSample(
             ect1_delta=ect1_delta,
             ce_delta=ce_delta,
+            marked_delta=marked_total,
             ce_fraction=ce_fraction,
         )

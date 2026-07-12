@@ -28,6 +28,7 @@ class TransportSnapshot:
     ecn_received_ce: Optional[int]
     prague_alpha: Optional[float]
     prague_ce_fraction: Optional[float]
+    prague_cwnd_reductions: Optional[int]
     prague_total_ect1: Optional[int]
     prague_total_ce: Optional[int]
 
@@ -105,6 +106,7 @@ def snapshot_transport(
         ecn_received_ce=getattr(ecn, "received_ce", None),
         prague_alpha=getattr(cc, "prague_alpha", None),
         prague_ce_fraction=getattr(cc, "prague_ce_fraction", None),
+        prague_cwnd_reductions=getattr(cc, "prague_cwnd_reductions", None),
         prague_total_ect1=getattr(getattr(cc, "ecn_state", None), "total_ect1", None),
         prague_total_ce=getattr(getattr(cc, "ecn_state", None), "total_ce", None),
     )
