@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from aioquic.asyncio import connect
 from aioquic.quic.configuration import QuicConfiguration
 
+from .congestion import CONGESTION_CONTROL_CHOICES, profile_for_cc
 from .constants import ALPN_PROTOCOLS, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TRANSFER_BYTES
 from .metrics import MetricsRecorder, TransferClock, snapshot_transport
 from .protocol import mbps, receive_all
+from .quic import connect_quic
 
 
 @dataclass
@@ -23,6 +24,7 @@ class TransferResult:
     throughput_mbps: float
     ping_ms: float
     congestion_control: str
+    ecn: str
 
 
 async def measure_ping(protocol) -> float:
@@ -40,18 +42,20 @@ async def transfer(
     metrics_path: Optional[Path],
     insecure: bool,
 ) -> TransferResult:
+    profile = profile_for_cc(cc)
     configuration = QuicConfiguration(
         is_client=True,
         alpn_protocols=ALPN_PROTOCOLS,
-        congestion_control_algorithm=cc,
+        congestion_control_algorithm=profile.congestion_control,
     )
     if insecure:
         configuration.verify_mode = ssl.CERT_NONE
 
-    async with connect(
+    async with connect_quic(
         host,
         port,
         configuration=configuration,
+        ecn=profile.ecn,
     ) as protocol:
         ping_ms = await measure_ping(protocol)
         reader, writer = await protocol.create_stream()
@@ -87,7 +91,8 @@ async def transfer(
         elapsed_s=elapsed,
         throughput_mbps=mbps(received, elapsed),
         ping_ms=ping_ms,
-        congestion_control=cc,
+        congestion_control=profile.congestion_control,
+        ecn=profile.ecn_label,
     )
 
 
@@ -104,12 +109,13 @@ async def run_client(args: argparse.Namespace) -> None:
     )
 
     print(
-        "received={received} bytes elapsed={elapsed:.3f}s throughput={throughput:.2f}Mbps ping={ping:.2f}ms cc={cc}".format(
+        "received={received} bytes elapsed={elapsed:.3f}s throughput={throughput:.2f}Mbps ping={ping:.2f}ms cc={cc} ecn={ecn}".format(
             received=result.received_bytes,
             elapsed=result.elapsed_s,
             throughput=result.throughput_mbps,
             ping=result.ping_ms,
             cc=result.congestion_control,
+            ecn=result.ecn,
         )
     )
 
@@ -119,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--bytes", type=int, default=DEFAULT_TRANSFER_BYTES)
-    parser.add_argument("--cc", choices=["reno", "cubic"], default="reno")
+    parser.add_argument("--cc", choices=CONGESTION_CONTROL_CHOICES, default="reno")
     parser.add_argument(
         "--metrics-file",
         help="write receiver-side transfer metrics to a CSV file",

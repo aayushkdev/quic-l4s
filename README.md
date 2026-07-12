@@ -37,6 +37,12 @@ Run an automated Cubic benchmark:
 uv run qcl4s-bench --bytes 1048576 --cc cubic
 ```
 
+Run an experimental Prague/L4S-marked benchmark:
+
+```bash
+uv run qcl4s-bench --bytes 1048576 --cc prague
+```
+
 Check local ECN socket support:
 
 ```bash

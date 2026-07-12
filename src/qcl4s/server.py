@@ -5,13 +5,15 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 
-from aioquic.asyncio.server import QuicServer, serve
+from aioquic.asyncio.server import QuicServer
 from aioquic.quic.configuration import QuicConfiguration
 
 from .certs import ensure_self_signed_cert
+from .congestion import CONGESTION_CONTROL_CHOICES, profile_for_cc
 from .constants import ALPN_PROTOCOLS, DEFAULT_CERT_PATH, DEFAULT_HOST, DEFAULT_KEY_PATH, DEFAULT_PORT
 from .metrics import MetricsRecorder, TransferClock, snapshot_transport, stream_protocol
 from .protocol import ProtocolError, mbps, read_command, send_bytes
+from .quic import serve_quic
 
 
 async def handle_stream(
@@ -73,17 +75,19 @@ async def create_server(
     if generate_cert:
         ensure_self_signed_cert(cert_path, key_path, host)
 
+    profile = profile_for_cc(cc)
     configuration = QuicConfiguration(
         is_client=False,
         alpn_protocols=ALPN_PROTOCOLS,
-        congestion_control_algorithm=cc,
+        congestion_control_algorithm=profile.congestion_control,
     )
     configuration.load_cert_chain(cert_path, key_path)
 
-    return await serve(
+    return await serve_quic(
         host,
         port,
         configuration=configuration,
+        ecn=profile.ecn,
         stream_handler=lambda reader, writer: asyncio.create_task(
             handle_stream(reader, writer, metrics_path)
         ),
@@ -102,7 +106,11 @@ async def run_server(args: argparse.Namespace) -> None:
         metrics_path=Path(args.metrics_file) if args.metrics_file else None,
         generate_cert=args.generate_cert,
     )
-    print(f"qcl4s server listening on {args.host}:{args.port} cc={args.cc}")
+    profile = profile_for_cc(args.cc)
+    print(
+        f"qcl4s server listening on {args.host}:{args.port} "
+        f"cc={args.cc} ecn={profile.ecn_label}"
+    )
     print(f"certificate={cert_path} key={key_path}")
 
     try:
@@ -117,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--cert", default=DEFAULT_CERT_PATH)
     parser.add_argument("--key", default=DEFAULT_KEY_PATH)
-    parser.add_argument("--cc", choices=["reno", "cubic"], default="reno")
+    parser.add_argument("--cc", choices=CONGESTION_CONTROL_CHOICES, default="reno")
     parser.add_argument(
         "--metrics-file",
         help="write sender-side transfer metrics to a CSV file",

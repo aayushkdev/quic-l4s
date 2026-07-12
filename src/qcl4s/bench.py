@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import transfer
+from .congestion import CONGESTION_CONTROL_CHOICES, profile_for_cc
 from .constants import (
     DEFAULT_CERT_PATH,
     DEFAULT_HOST,
@@ -64,6 +65,7 @@ async def run_benchmark(args: argparse.Namespace) -> None:
         "throughput_mbps": result.throughput_mbps,
         "ping_ms": result.ping_ms,
         "congestion_control": args.cc,
+        "ecn": result.ecn,
         "server_metrics": str(server_metrics),
         "client_metrics": str(client_metrics),
     }
@@ -74,12 +76,13 @@ async def run_benchmark(args: argparse.Namespace) -> None:
     print(f"server_metrics={server_metrics}")
     print(f"client_metrics={client_metrics}")
     print(
-        "received={received} bytes elapsed={elapsed:.3f}s throughput={throughput:.2f}Mbps ping={ping:.2f}ms cc={cc}".format(
+        "received={received} bytes elapsed={elapsed:.3f}s throughput={throughput:.2f}Mbps ping={ping:.2f}ms cc={cc} ecn={ecn}".format(
             received=result.received_bytes,
             elapsed=result.elapsed_s,
             throughput=result.throughput_mbps,
             ping=result.ping_ms,
             cc=args.cc,
+            ecn=profile_for_cc(args.cc).ecn_label,
         )
     )
 
@@ -110,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="server port to bind; 0 picks an available local port",
     )
     parser.add_argument("--bytes", type=int, default=DEFAULT_TRANSFER_BYTES)
-    parser.add_argument("--cc", choices=["reno", "cubic"], default="reno")
+    parser.add_argument("--cc", choices=CONGESTION_CONTROL_CHOICES, default="reno")
     parser.add_argument("--runs-dir", default=DEFAULT_RUNS_DIR)
     parser.add_argument("--name", help="run directory name; defaults to timestamp-cc")
     parser.add_argument("--cert", default=DEFAULT_CERT_PATH)
