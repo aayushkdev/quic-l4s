@@ -37,6 +37,12 @@ Run an automated Cubic benchmark:
 uv run qcl4s-bench --bytes 1048576 --cc cubic
 ```
 
+Check local ECN socket support:
+
+```bash
+uv run qcl4s-ecn-check
+```
+
 Benchmark runs are written to `runs/`:
 
 ```text

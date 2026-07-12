@@ -15,6 +15,7 @@ dependencies = [
 qcl4s = "qcl4s:main"
 qcl4s-bench = "qcl4s.bench:main"
 qcl4s-client = "qcl4s.client:main"
+qcl4s-ecn-check = "qcl4s.ecn_check:main"
 qcl4s-server = "qcl4s.server:main"
 
 [build-system]
